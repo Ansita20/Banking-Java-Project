@@ -1,2 +1,6 @@
-*server/onlinebanking/src/main/resources/application.properties
-*images/users/
+**/target/
+client/node_modules/
+client/build/
+.env
+.DS_Store
+.local/

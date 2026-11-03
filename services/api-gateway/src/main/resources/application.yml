@@ -1,0 +1,76 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowed-origins: ${CORS_ORIGINS:http://localhost:3000}
+            allowed-methods: [GET, POST, PUT, PATCH, DELETE, OPTIONS]
+            allowed-headers: "*"
+            exposed-headers: [Location]
+            max-age: 3600
+      default-filters:
+        - DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials, RETAIN_UNIQUE
+      routes:
+        - id: identity-service
+          uri: lb://identity-service
+          predicates:
+            - Path=/api/auth/**,/api/users/**,/api/admin/users/**
+          filters:
+            - name: CircuitBreaker
+              args: { name: identity, fallbackUri: forward:/fallback/identity-service }
+        - id: account-service
+          uri: lb://account-service
+          predicates:
+            - Path=/api/accounts/**,/api/admin/accounts/**
+          filters:
+            - name: CircuitBreaker
+              args: { name: account, fallbackUri: forward:/fallback/account-service }
+        - id: transaction-service
+          uri: lb://transaction-service
+          predicates:
+            - Path=/api/transfers/**,/api/beneficiaries/**,/api/admin/transfers/**
+          filters:
+            - name: CircuitBreaker
+              args: { name: transaction, fallbackUri: forward:/fallback/transaction-service }
+        - id: notification-service
+          uri: lb://notification-service
+          predicates:
+            - Path=/api/notifications/**
+          filters:
+            - name: CircuitBreaker
+              args: { name: notification, fallbackUri: forward:/fallback/notification-service }
+
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        sliding-window-size: 20
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 3
+  timelimiter:
+    configs:
+      default:
+        timeout-duration: 10s
+
+bank:
+  jwt:
+    secret: ${JWT_SECRET:dev-only-secret-change-me-0123456789abcdef}
+
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_URL:http://localhost:8761/eureka}
+  instance:
+    prefer-ip-address: true
+
+management:
+  endpoints.web.exposure.include: health,info,gateway
+  tracing.sampling.probability: 1.0
+  zipkin.tracing.endpoint: ${ZIPKIN_URL:http://localhost:9411/api/v2/spans}

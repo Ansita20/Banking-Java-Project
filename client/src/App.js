@@ -3,25 +3,24 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import './App.css';
 import LandingPage from './Components/LandingPage/LandingPage';
 import AuthPage from './Components/Auth/AuthPage';
-import AccountPage from './Components/Account/AccountPage';
+import Dashboard from './Components/Account/Dashboard';
 import Protected from './Components/Protected/Protected';
-import RegisterOTPVerification from './Components/Registration/RegisterOTPVerification';
+import VerifyEmail from './Components/Registration/VerifyEmail';
 import AdminPage from './Components/Admin/AdminPage';
 
 function App() {
-  
   return (
     <Routes>
       <Route path="/" element={<LandingPage />} />
       <Route path="/auth" element={<AuthPage />} />
-      <Route path="/signup/otp" element={<RegisterOTPVerification />} />
+      <Route path="/verify-email" element={<VerifyEmail />} />
       <Route path="/dashboard" element={
-        <Protected>
-          <AccountPage />
+        <Protected role="USER">
+          <Dashboard />
         </Protected>
       } />
       <Route path="/admin" element={
-        <Protected>
+        <Protected role="ADMIN">
           <AdminPage />
         </Protected>
       } />

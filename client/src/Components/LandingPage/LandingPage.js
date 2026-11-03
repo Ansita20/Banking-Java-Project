@@ -9,7 +9,7 @@ const LandingPage = () => {
       <nav className="bg-white shadow-md px-6 py-4 flex justify-between items-center">
         <div className="flex items-center space-x-2">
           <BsBank className="text-2xl text-indigo-600" />
-          <h1 className="text-xl font-bold text-gray-800">Online Banking</h1>
+          <h1 className="text-xl font-bold text-gray-800">CoreBank</h1>
         </div>
         <div>
           <NavLink

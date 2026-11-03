@@ -1,0 +1,139 @@
+name: corebank
+
+x-service-env: &service-env
+  EUREKA_URL: http://discovery-server:8761/eureka
+  KAFKA_BOOTSTRAP: kafka:9092
+  ZIPKIN_URL: http://zipkin:9411/api/v2/spans
+  JWT_SECRET: ${JWT_SECRET:-dev-only-secret-change-me-0123456789abcdef}
+  DB_USER: bank
+  DB_PASSWORD: ${POSTGRES_PASSWORD:-bank}
+  JAVA_TOOL_OPTIONS: ${SERVICE_JVM_OPTS:--Xmx200m -XX:MaxMetaspaceSize=150m -XX:+UseSerialGC}
+
+x-service: &service
+  restart: on-failure
+  depends_on:
+    postgres: { condition: service_healthy }
+    kafka: { condition: service_healthy }
+    discovery-server: { condition: service_started }
+
+services:
+  # ---------- infrastructure ----------
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: bank
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bank}
+    volumes:
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - pgdata:/var/lib/postgresql/data
+    ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bank"]
+      interval: 5s
+      retries: 20
+
+  kafka:
+    image: apache/kafka:3.8.0
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_NUM_PARTITIONS: 3
+    ports: ["29092:29092"]
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
+      interval: 5s
+      retries: 30
+
+  # Optional tools: docker compose --profile tools up
+  kafka-ui:
+    image: provectuslabs/kafka-ui:v0.7.2
+    profiles: [tools]
+    environment:
+      KAFKA_CLUSTERS_0_NAME: corebank
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+    ports: ["8090:8080"]
+    depends_on:
+      kafka: { condition: service_healthy }
+
+  zipkin:
+    image: openzipkin/zipkin:3.4
+    profiles: [tools]
+    ports: ["9411:9411"]
+
+  mailpit:
+    image: axllent/mailpit:v1.20
+    ports: ["8025:8025"]   # web inbox for OTP / alert emails
+
+  # ---------- platform ----------
+  discovery-server:
+    build: { context: ./services, args: { SERVICE: discovery-server } }
+    environment:
+      EUREKA_HOSTNAME: discovery-server
+      JAVA_TOOL_OPTIONS: -Xmx128m -XX:+UseSerialGC
+    ports: ["8761:8761"]
+
+  api-gateway:
+    <<: *service
+    build: { context: ./services, args: { SERVICE: api-gateway } }
+    environment:
+      <<: *service-env
+      CORS_ORIGINS: http://localhost:3000
+    ports: ["8080:8080"]
+    depends_on:
+      discovery-server: { condition: service_started }
+
+  # ---------- business services (not exposed to the host; only via the gateway) ----------
+  identity-service:
+    <<: *service
+    build: { context: ./services, args: { SERVICE: identity-service } }
+    environment:
+      <<: *service-env
+      DB_URL: jdbc:postgresql://postgres:5432/identity_db
+      PII_ENCRYPTION_KEY: ${PII_ENCRYPTION_KEY:-dev-only-pii-key-change-me}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@corebank.local}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-Admin@12345}
+
+  account-service:
+    <<: *service
+    build: { context: ./services, args: { SERVICE: account-service } }
+    deploy:
+      replicas: ${ACCOUNT_REPLICAS:-2}
+    environment:
+      <<: *service-env
+      DB_URL: jdbc:postgresql://postgres:5432/account_db
+
+  transaction-service:
+    <<: *service
+    build: { context: ./services, args: { SERVICE: transaction-service } }
+    deploy:
+      replicas: ${TRANSACTION_REPLICAS:-2}
+    environment:
+      <<: *service-env
+      DB_URL: jdbc:postgresql://postgres:5432/transaction_db
+
+  notification-service:
+    <<: *service
+    build: { context: ./services, args: { SERVICE: notification-service } }
+    environment:
+      <<: *service-env
+      DB_URL: jdbc:postgresql://postgres:5432/notification_db
+      MAIL_HOST: mailpit
+      MAIL_PORT: 1025
+
+  # ---------- frontend ----------
+  web:
+    build: { context: ./client, args: { REACT_APP_API_URL: "http://localhost:8080" } }
+    ports: ["3000:80"]
+    depends_on: [api-gateway]
+
+volumes:
+  pgdata:

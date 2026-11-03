@@ -1,0 +1,9 @@
+# Run without Docker: file-based H2 instead of Postgres (scripts/run-local.sh).
+spring:
+  datasource:
+    url: jdbc:h2:file:${LOCAL_DATA_DIR:./.local/data}/transaction_db;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;AUTO_SERVER=TRUE
+    username: sa
+    password:
+  flyway.enabled: false
+  jpa.hibernate.ddl-auto: update
+management.tracing.enabled: false
